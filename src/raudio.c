@@ -298,6 +298,9 @@ typedef struct tagBITMAPINFOHEADER {
 #ifndef MAX_AUDIO_BUFFER_POOL_CHANNELS
     #define MAX_AUDIO_BUFFER_POOL_CHANNELS    16    // Audio pool channels
 #endif
+//#ifndef AUDIO_CAPTURE_BUFFER_SIZE
+//    #define AUDIO_CAPTURE_BUFFER_SIZE (AUDIO_DEVICE_CHANNELS * 1024)
+//#endif
 
 //----------------------------------------------------------------------------------
 // Types and Structures Definition
@@ -390,6 +393,12 @@ typedef struct AudioData {
         AudioBuffer *last;          // Pointer to last AudioBuffer in the list
         int defaultSize;            // Default audio buffer size for audio streams
     } Buffer;
+
+    float* captureBuffer;
+    size_t captureBufferSize;
+    size_t captureTail;
+    size_t captureHead;
+
     rAudioProcessor *mixedProcessor;
 } AudioData;
 
@@ -469,15 +478,17 @@ void InitAudioDevice(void)
         return;
     }
 
+    //AUDIO.captureBuffer = RL_MALLOC(AUDIO_CAPTURE_BUFFER_SIZE * sizeof(float));
+
     // Init audio device
     // NOTE: Using the default device. Format is floating point because it simplifies mixing
-    ma_device_config config = ma_device_config_init(ma_device_type_playback);
+    ma_device_config config = ma_device_config_init(ma_device_type_duplex);
     config.playback.pDeviceID = NULL;  // NULL for the default playback AUDIO.System.device
     config.playback.format = AUDIO_DEVICE_FORMAT;
     config.playback.channels = AUDIO_DEVICE_CHANNELS;
     config.capture.pDeviceID = NULL;  // NULL for the default capture AUDIO.System.device
-    config.capture.format = ma_format_s16;
-    config.capture.channels = 1;
+    config.capture.format = AUDIO_DEVICE_FORMAT;
+    config.capture.channels = AUDIO_DEVICE_CHANNELS;
     config.sampleRate = AUDIO_DEVICE_SAMPLE_RATE;
     config.dataCallback = OnSendAudioDataToDevice;
     config.pUserData = NULL;
@@ -2502,6 +2513,8 @@ static void OnSendAudioDataToDevice(ma_device *pDevice, void *pFramesOut, const 
 {
     (void)pDevice;
 
+    printf("frameCount: %u\n", frameCount);
+
     // Mixing is basically just an accumulation, we need to initialize the output buffer to 0
     memset(pFramesOut, 0, frameCount*pDevice->playback.channels*ma_get_bytes_per_sample(pDevice->playback.format));
 
@@ -2580,6 +2593,31 @@ static void OnSendAudioDataToDevice(ma_device *pDevice, void *pFramesOut, const 
                 // If for some reason we weren't able to read every frame we'll need to break from the loop
                 // Not doing this could theoretically put us into an infinite loop
                 if (framesToRead > 0) break;
+            }
+        }
+
+        {
+            assert(ma_get_bytes_per_sample(pDevice->playback.format) == sizeof(float));
+            const size_t sampleCount = frameCount * pDevice->playback.channels;
+
+            if (AUDIO.captureBufferSize == 0)
+            {
+                assert(AUDIO.captureBuffer == NULL);
+                AUDIO.captureBufferSize = 64 * sampleCount;
+                AUDIO.captureBuffer = RL_CALLOC(AUDIO.captureBufferSize, sizeof(float));
+            }
+
+            const size_t used = AUDIO.captureHead - AUDIO.captureTail;
+            const size_t available = AUDIO.captureBufferSize - used;
+
+            if (sampleCount <= available)
+            {
+                const size_t wrappedHead = AUDIO.captureHead % AUDIO.captureBufferSize;
+                const size_t writeEnd = wrappedHead + sampleCount;
+                assert(writeEnd <= AUDIO.captureBufferSize);
+                memcpy(AUDIO.captureBuffer + wrappedHead, pFramesInput, sampleCount * sizeof(float));
+
+                AUDIO.captureHead += sampleCount;
             }
         }
     }
@@ -2888,5 +2926,52 @@ static bool SaveFileText(const char *fileName, char *text)
 #endif
 
 #undef AudioBuffer
+
+size_t GetAudioCaptureData(float* data, size_t len)
+{
+    assert(len % 2 == 0);
+
+    ma_mutex_lock(&AUDIO.System.lock);
+
+    size_t result = 0;
+
+    do
+    {
+        size_t available = AUDIO.captureHead - AUDIO.captureTail;
+        if (available == 0)
+        {
+            break;
+        }
+
+        if (available > len)
+        {
+            available = len;
+        }
+
+        const size_t readEnd = AUDIO.captureTail + available;
+
+        if (readEnd <= AUDIO.captureBufferSize)
+        {
+            memcpy(data, AUDIO.captureBuffer + AUDIO.captureTail, available * sizeof(float));
+        }
+        else
+        {
+            memcpy(data, AUDIO.captureBuffer + AUDIO.captureTail, (AUDIO.captureBufferSize - AUDIO.captureTail) * sizeof(float));
+            memcpy(data + (AUDIO.captureBufferSize - AUDIO.captureTail), AUDIO.captureBuffer, (readEnd % AUDIO.captureBufferSize) * sizeof(float));
+        }
+
+        AUDIO.captureTail += available;
+        if (AUDIO.captureTail >= AUDIO.captureBufferSize)
+        {
+            AUDIO.captureTail -= AUDIO.captureBufferSize;
+            AUDIO.captureHead -= AUDIO.captureBufferSize;
+        }
+
+        result = available;
+    } while (0);
+
+    ma_mutex_unlock(&AUDIO.System.lock);
+    return result;
+}
 
 #endif      // SUPPORT_MODULE_RAUDIO
