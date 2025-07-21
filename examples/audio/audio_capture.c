@@ -17,7 +17,7 @@
 #define BUFFER_SIZE (64 * 1024)
 
 static float buffer[2 * BUFFER_SIZE];
-static size_t bufferHead = 0;
+static unsigned int bufferHead = 0;
 
 int main(void)
 {
@@ -31,7 +31,7 @@ int main(void)
 
     while (!WindowShouldClose())    // Detect window close button or ESC key
     {
-        size_t nread = GetAudioCaptureData(buffer + bufferHead, BUFFER_SIZE - bufferHead);
+        unsigned int nread = GetAudioCaptureData(buffer + bufferHead, BUFFER_SIZE - bufferHead);
         if (nread > 0)
         {
             bufferHead = (bufferHead + nread) % BUFFER_SIZE;

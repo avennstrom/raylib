@@ -1709,7 +1709,8 @@ RLAPI void DetachAudioStreamProcessor(AudioStream stream, AudioCallback processo
 RLAPI void AttachAudioMixedProcessor(AudioCallback processor); // Attach audio stream processor to the entire audio pipeline, receives frames x 2 samples as 'float' (stereo)
 RLAPI void DetachAudioMixedProcessor(AudioCallback processor); // Detach audio stream processor from the entire audio pipeline
 
-RLAPI size_t GetAudioCaptureData(float* data, size_t len);
+RLAPI unsigned int GetAudioCaptureSampleRate(void);
+RLAPI unsigned int GetAudioCaptureData(float* data, unsigned int len);
 
 #if defined(__cplusplus)
 }

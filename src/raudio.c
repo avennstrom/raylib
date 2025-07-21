@@ -2513,7 +2513,7 @@ static void OnSendAudioDataToDevice(ma_device *pDevice, void *pFramesOut, const 
 {
     (void)pDevice;
 
-    printf("frameCount: %u\n", frameCount);
+    //printf("frameCount: %u\n", frameCount);
 
     // Mixing is basically just an accumulation, we need to initialize the output buffer to 0
     memset(pFramesOut, 0, frameCount*pDevice->playback.channels*ma_get_bytes_per_sample(pDevice->playback.format));
@@ -2927,7 +2927,12 @@ static bool SaveFileText(const char *fileName, char *text)
 
 #undef AudioBuffer
 
-size_t GetAudioCaptureData(float* data, size_t len)
+RLAPI unsigned int GetAudioCaptureSampleRate(void)
+{
+	return AUDIO.System.device.sampleRate;
+}
+
+unsigned int GetAudioCaptureData(float* data, unsigned int len)
 {
     assert(len % 2 == 0);
 
